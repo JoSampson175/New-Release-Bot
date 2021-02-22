@@ -1,0 +1,144 @@
+from bs4 import BeautifulSoup
+from datetime import date
+from dotenv import load_dotenv
+import os
+import pprint
+import requests
+import schedule
+import spotipy
+from spotipy.oauth2 import SpotifyOAuth
+from spotipy.oauth2 import SpotifyClientCredentials
+import spotipy.util as util
+import time
+import tweepy
+
+
+
+def scrape():
+#website the data comes from
+    terms = [""]
+    url = 'https://www.albumoftheyear.org/releases/'
+    urlPage2 = 'https://www.albumoftheyear.org/releases/2/'
+    urlPage3 = 'https://www.albumoftheyear.org/releases/3/'
+#making the soup  
+    website = requests.get(url)
+    webpage2 = requests.get(urlPage2)
+    webpage3 = requests.get(urlPage3)
+    soup = BeautifulSoup(website.text, 'html.parser')
+    soupTheSecond = BeautifulSoup(webpage2.text, 'html.parser')
+    soupTheSequal = BeautifulSoup(webpage3.text, 'html.parser')
+
+#scraping the website for the info
+    first = soup.find(class_ = 'albumBlock five')
+#finds todays date for albums
+    today = first.findChildren()[0]
+    i = 0
+# finds albums
+
+    for albums in soup.find_all(class_ = 'albumBlock five'):
+        if today == albums.findChildren()[0]:
+#finds data about the artitst and their name
+            i += 1
+            artist = albums.find(class_ = 'artistTitle')
+#finding album name
+            albumName = albums.find(class_ = 'albumTitle')
+            terms.append(" ".join((artist.string,albumName.string)))
+    for albums in soupTheSecond.find_all(class_ = 'albumBlock five'):
+        if today == albums.findChildren()[0]:
+#finds data about the artitst and their name
+            i += 1
+            artist = albums.find(class_ = 'artistTitle')
+#finding album name
+            albumName = albums.find(class_ = 'albumTitle')
+            terms.append(" ".join((artist.string,albumName.string)))
+    for albums in soupTheSequal.find_all(class_ = 'albumBlock five'):
+        if today == albums.findChildren()[0]:
+#finds data about the artitst and their name
+            i += 1
+            artist = albums.find(class_ = 'artistTitle')
+#finding album name
+            albumName = albums.find(class_ = 'albumTitle')
+            terms.append(" ".join((artist.string,albumName.string)))
+    
+    print("There were " + str(i) + " Albums Released")
+    terms.pop(0)
+    return terms
+
+#create and add songs to playlist
+
+
+def create_playlist(sp):
+    usr_id = sp.current_user()['id']
+    desc = "Newly released albums found from Album of the Year may not be completly accurate"
+    title = str(date.today())
+    sp.user_playlist_create(usr_id, name=title, public=True, collaborative=False, description=desc)
+    new_play = sp.current_user_playlists(limit=1,offset=0)['items'][0]['external_urls']['spotify']
+    try: 
+        to_del = sp.current_user_playlists(limit=1,offset=7)['items'][0]['id']
+        sp.current_user_unfollow_playlist(to_del)
+        print("deleted last weeks playlist")
+    except:
+        print("Nothing deleted")
+        return new_play
+    return new_play
+        
+
+def add_tracks(search_terms, sp):
+    usr_id = sp.current_user()['id']
+    playlist_id = sp.current_user_playlists(limit=1)['items'][0]['id']  
+    album_id = 0
+    track_id_num = [0]
+    track_id_num.pop(0)
+    albums = [0]
+    albums.pop(0)
+    h = 0
+    for item in search_terms:
+        result = sp.search( search_terms[h],limit=1,offset=0,type='album',market=None)
+        values =list(result.values())
+        for i in values:
+            for j in i['items']:
+                album_id = j['id']
+        h += 1
+        if album_id == 0:
+            continue
+        tracks = sp.album_tracks(album_id)
+        for track in tracks['items']:
+            albums.append(track['id'])
+        sp.playlist_add_items(playlist_id, albums , position=None)
+        del(albums[:])
+    
+
+
+def make_tweet(url):
+    api_key = os.getenv("API_KEY")
+    api_secret = os.getenv("API_KEY_SECRET")
+    access = os.getenv("ACCESS_TOKEN")
+    access_secret = os.getenv("ACCESS_TOKEN_SECRET")
+    auth = tweepy.OAuthHandler(api_key, 
+    api_secret)
+    auth.set_access_token(access, 
+    access_secret)
+    msg = "Check out a playlist of fresh new albums just released today!"
+
+    api = tweepy.API(auth)
+
+    try:
+        api.update_status(msg + url)
+        print("Tweeted")
+    except:
+        print("Error during authentication")
+
+
+
+
+def main():
+    sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope='playlist-modify-public'))
+    search_terms = scrape()
+    url = create_playlist(sp)
+    add_tracks(search_terms, sp)
+    make_tweet(url)
+    
+
+load_dotenv()
+main()
+
